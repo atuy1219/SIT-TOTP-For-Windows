@@ -6,7 +6,7 @@ use std::slice;
 use windows_sys::Win32::Security::Cryptography::{
     CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
 };
-use windows_sys::Win32::System::Memory::LocalFree;
+use windows_sys::Win32::Foundation::LocalFree;
 use zeroize::Zeroize;
 
 fn secret_path() -> Result<PathBuf, String> {

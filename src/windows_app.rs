@@ -3,20 +3,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use zeroize::Zeroize;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HINSTANCE, HWND, LPARAM, LRESULT, POINT,
-    WPARAM,
+    CloseHandle, GetLastError, GlobalFree, ERROR_ALREADY_EXISTS, HINSTANCE, HWND, LPARAM,
+    LRESULT, POINT, WPARAM,
 };
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateFontW, DeleteObject, GetStockObject, DEFAULT_CHARSET, DEFAULT_GUI_FONT, FF_DONTCARE,
-    FW_BOLD, OUT_DEFAULT_PRECIS,
+    CreateFontW, DeleteObject, GetStockObject, UpdateWindow, CLEARTYPE_QUALITY,
+    CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_GUI_FONT, FF_DONTCARE, FW_BOLD,
+    OUT_DEFAULT_PRECIS,
 };
 use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::Memory::{
-    GlobalAlloc, GlobalFree, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
-};
+use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
@@ -32,6 +31,14 @@ use crate::{autostart, secret_store, totp};
 const APP_NAME: &str = "SIT TOTP";
 const CLASS_NAME: &str = "SIT_TOTP_FOR_WINDOWS_NATIVE";
 const MUTEX_NAME: &str = "Local\\SIT_TOTP_FOR_WINDOWS_INSTANCE";
+
+// Stable Win32 values kept local so extra API feature groups are unnecessary.
+const COLOR_WINDOW_BRUSH: isize = 6; // COLOR_WINDOW + 1
+const STATIC_CENTER_STYLE: u32 = 0x0000_0001; // SS_CENTER
+const EDIT_SET_LIMIT_TEXT: u32 = 0x00C5; // EDIT_SET_LIMIT_TEXT
+const BUTTON_UNCHECKED: usize = 0; // BST_UNCHECKED
+const BUTTON_CHECKED: usize = 1; // BST_CHECKED
+const CLIPBOARD_UNICODE_TEXT: u32 = 13; // CLIPBOARD_UNICODE_TEXT
 
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_SHOW_EXISTING: u32 = WM_APP + 2;
@@ -181,7 +188,7 @@ pub fn run() -> Result<(), String> {
             hInstance: instance,
             hIcon: icon,
             hCursor: cursor,
-            hbrBackground: (COLOR_WINDOW + 1) as _,
+            hbrBackground: COLOR_WINDOW_BRUSH as _,
             lpszClassName: class_name.as_ptr(),
             ..std::mem::zeroed()
         };
@@ -340,7 +347,7 @@ unsafe fn initialize_window(state: &mut AppState) {
     let title = create_control(
         "STATIC",
         "現在の認証コード",
-        SS_CENTER as u32,
+        STATIC_CENTER_STYLE,
         20,
         18,
         405,
@@ -352,7 +359,7 @@ unsafe fn initialize_window(state: &mut AppState) {
     state.code_label = create_control(
         "STATIC",
         "------",
-        SS_CENTER as u32,
+        STATIC_CENTER_STYLE,
         20,
         45,
         405,
@@ -364,7 +371,7 @@ unsafe fn initialize_window(state: &mut AppState) {
     state.countdown_label = create_control(
         "STATIC",
         "残り -- 秒",
-        SS_CENTER as u32,
+        STATIC_CENTER_STYLE,
         20,
         102,
         405,
@@ -410,7 +417,7 @@ unsafe fn initialize_window(state: &mut AppState) {
         ID_SEED,
         instance,
     );
-    SendMessageW(state.seed_edit, EM_SETLIMITTEXT, 1024, 0);
+    SendMessageW(state.seed_edit, EDIT_SET_LIMIT_TEXT, 1024, 0);
     let save_button = create_control(
         "BUTTON",
         "保存",
@@ -484,11 +491,11 @@ unsafe fn initialize_window(state: &mut AppState) {
         0,
         0,
         0,
-        DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY,
-        FF_DONTCARE,
+        u32::from(DEFAULT_CHARSET),
+        u32::from(OUT_DEFAULT_PRECIS),
+        u32::from(CLIP_DEFAULT_PRECIS),
+        u32::from(CLEARTYPE_QUALITY),
+        u32::from(FF_DONTCARE),
         face.as_ptr(),
     ) as isize;
     if state.code_font != 0 {
@@ -499,9 +506,9 @@ unsafe fn initialize_window(state: &mut AppState) {
         state.autostart_checkbox,
         BM_SETCHECK,
         if autostart::is_enabled() {
-            BST_CHECKED as usize
+            BUTTON_CHECKED
         } else {
-            BST_UNCHECKED as usize
+            BUTTON_UNCHECKED
         },
         0,
     );
@@ -538,7 +545,7 @@ unsafe fn handle_command(state: &mut AppState, command: i32) {
         ID_DELETE => delete_seed(state),
         ID_AUTOSTART => {
             let enabled = SendMessageW(state.autostart_checkbox, BM_GETCHECK, 0, 0)
-                == BST_CHECKED as isize;
+                == BUTTON_CHECKED as isize;
             match autostart::set_enabled(enabled) {
                 Ok(()) => set_text(
                     state.status_label,
@@ -553,9 +560,9 @@ unsafe fn handle_command(state: &mut AppState, command: i32) {
                         state.autostart_checkbox,
                         BM_SETCHECK,
                         if enabled {
-                            BST_UNCHECKED as usize
+                            BUTTON_UNCHECKED
                         } else {
-                            BST_CHECKED as usize
+                            BUTTON_CHECKED
                         },
                         0,
                     );
@@ -574,9 +581,9 @@ unsafe fn handle_command(state: &mut AppState, command: i32) {
                     state.autostart_checkbox,
                     BM_SETCHECK,
                     if enabled {
-                        BST_CHECKED as usize
+                        BUTTON_CHECKED
                     } else {
-                        BST_UNCHECKED as usize
+                        BUTTON_UNCHECKED
                     },
                     0,
                 );
@@ -705,7 +712,7 @@ unsafe fn set_clipboard_text(hwnd: HWND, text: &str) -> Result<(), String> {
     std::ptr::copy_nonoverlapping(data.as_ptr(), pointer, data.len());
     GlobalUnlock(memory);
 
-    if SetClipboardData(CF_UNICODETEXT, memory).is_null() {
+    if SetClipboardData(CLIPBOARD_UNICODE_TEXT, memory).is_null() {
         GlobalFree(memory);
         CloseClipboard();
         return Err(std::io::Error::last_os_error().to_string());
