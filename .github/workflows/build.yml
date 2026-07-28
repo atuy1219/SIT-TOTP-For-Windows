@@ -1,0 +1,29 @@
+name: Build Windows app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run tests
+        run: cargo test --all-targets
+      - name: Build release executable
+        run: cargo build --release
+      - name: Rename executable
+        shell: pwsh
+        run: Copy-Item target/release/sit-totp-for-windows.exe SIT-TOTP-For-Windows.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SIT-TOTP-For-Windows-x64
+          path: SIT-TOTP-For-Windows.exe
+          if-no-files-found: error
