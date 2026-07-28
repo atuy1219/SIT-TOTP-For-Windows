@@ -1,0 +1,31 @@
+name: Publish release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example v0.1.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test
+        run: cargo test --all-targets
+      - name: Build
+        run: cargo build --release
+      - name: Rename executable
+        shell: pwsh
+        run: Copy-Item target/release/sit-totp-for-windows.exe SIT-TOTP-For-Windows.exe
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: SIT TOTP for Windows ${{ inputs.tag }}
+          generate_release_notes: true
+          files: SIT-TOTP-For-Windows.exe
